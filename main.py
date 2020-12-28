@@ -2,7 +2,7 @@ from PySide2.QtWidgets import QMainWindow, QVBoxLayout, QWidget, QApplication, Q
 from PySide2.QtCore import Qt
 import sys
 
-from modules.ImagePreview import ImagePreview, ImageCapture
+from modules.ImagePreview import ImagePreview, CameraWorker
 from modules.Attributes import AttributesPanel
 
 
@@ -11,6 +11,8 @@ class Main(QMainWindow):
         super(Main, self).__init__()
         self.setWindowTitle("Pi Photo")
 
+        self.camera = CameraWorker()
+
         central_widget = QWidget()
         main_layout = QVBoxLayout(central_widget)
         self.setCentralWidget(central_widget)
@@ -18,31 +20,20 @@ class Main(QMainWindow):
         column_layout = QHBoxLayout()
         main_layout.addLayout(column_layout)
 
-        self.attributes_panel = AttributesPanel()
+        self.attributes_panel = AttributesPanel(self.camera)
         column_layout.addWidget(self.attributes_panel)
         column_layout.setAlignment(self.attributes_panel, Qt.AlignTop)
 
         image_preview_layout = QVBoxLayout()
         column_layout.addLayout(image_preview_layout)
 
-        self.image_display = ImagePreview()
-        image_preview_layout.addWidget(self.image_display)
-        image_preview_layout.setAlignment(self.image_display, Qt.AlignTop)
+        self.preview = ImagePreview()
+        image_preview_layout.addWidget(self.preview)
+        image_preview_layout.setAlignment(self.preview, Qt.AlignTop)
 
-        self.capture = ImageCapture()
-        self.attributes_panel.save_frame.connect(self.capture_image)
-
-    def capture_image(self):
-        if not self.attributes_panel.frame_path:
-            return
-
-        self.capture.path = self.attributes_panel.frame_path
-        resolution = self.attributes_panel.resolution
-        self.capture.set_size(resolution[0], resolution[1])
-
-        self.image_display.worker.stop()
-        self.image_display.worker.exited.connect(self.capture.start)
-        self.capture.exited.connect(self.image_display.worker.start)
+        # start preview
+        self.camera.frame_ready.connect(self.preview.set_image)
+        self.camera.start()
 
 
 if __name__ == '__main__':

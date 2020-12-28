@@ -1,7 +1,7 @@
 from PySide2.QtWidgets import QWidget
 from PySide2.QtGui import QPainter, QImage
 from PySide2.QtCore import QPoint, QThread, Signal
-import cv2, time
+import cv2
 import qimage2ndarray
 
 
@@ -16,10 +16,6 @@ class ImagePreview(QWidget):
 
         self.image = None
 
-        self.worker = CaptureWorker(self._width, self._height)
-        self.worker.finished.connect(self.set_image)
-        self.worker.start()
-
     def set_image(self, image):
         self.image = image
         self.update()
@@ -32,71 +28,68 @@ class ImagePreview(QWidget):
         qp.end()
 
 
-class ImageCapture(QThread):
-    exited = Signal()
+class CameraWorker(QThread):
+    frame_ready = Signal(QImage)
+    stopped = Signal()
 
     def __init__(self):
-        super(ImageCapture, self).__init__()
-        self.path = None
-        self._width = 2048
-        self._height = 1536
+        super(CameraWorker, self).__init__()
+        self.running = False
+        self.rotated = False
+
+        self._capture = None
+
+        self._width = 640
+        self._height = 480
 
     def set_size(self, width, height):
         self._width = width
         self._height = height
 
-    def set_path(self, path):
-        self.path = path
+    def set_rotate(self, value):
+        self.rotated = value
 
-    def run(self):
-        if not self.path:
-            print("Path not set!")
-            self.exited.emit()
-            return
-
+    def save_frame(self, parameters):
         print("Saving image...")
-        cap = cv2.VideoCapture(0)
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._width)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._height)
+        self.stop()
 
-        ret, frame = cap.read()
-        frame = cv2.rotate(frame, cv2.ROTATE_180)
-        cv2.imwrite(self.path, frame)
-        cap.release()
-        print("Image saved.")
-        self.exited.emit()
+        width = parameters.get("resolution")[0]
+        height = parameters.get("resolution")[1]
+        self._capture = cv2.VideoCapture(0)
 
+        self._capture.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+        self._capture.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
 
-class CaptureWorker(QThread):
-    finished = Signal(QImage)
-    exited = Signal()
+        image = self._get_image()
+        image.save(parameters.get("path"))
 
-    def __init__(self, width, height):
-        super(CaptureWorker, self).__init__()
-        self.capturing = False
-        self._width = width
-        self._height = height
+        print("Save finished.")
+
+        self.start()
 
     def stop(self):
-        self.capturing = False
+        self.running = False
+
+    def _get_image(self):
+        ret, frame = self._capture.read()
+        im_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+        if self.rotated:
+            im_rgb = cv2.rotate(im_rgb, cv2.ROTATE_180)
+        return qimage2ndarray.array2qimage(im_rgb)
 
     def run(self):
-        print("Starting review.")
-        self.capturing = True
+        print("Starting camera....")
+        self.running = True
 
-        cap = cv2.VideoCapture(0)
+        self._capture = cv2.VideoCapture(0)
 
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._width)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._height)
+        self._capture.set(cv2.CAP_PROP_FRAME_WIDTH, self._width)
+        self._capture.set(cv2.CAP_PROP_FRAME_HEIGHT, self._height)
 
-        while self.capturing:
-            ret, frame = cap.read()
-            im_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            rotated = cv2.rotate(im_rgb, cv2.ROTATE_180)
-            image = qimage2ndarray.array2qimage(rotated)
+        while self.running:
+            self.frame_ready.emit(self._get_image())
 
-            self.finished.emit(image)
-
-        print("Exiting preview.")
-        cap.release()
-        self.exited.emit()
+        print("Exiting camera.")
+        self._capture.release()
+        self.stopped.emit()
